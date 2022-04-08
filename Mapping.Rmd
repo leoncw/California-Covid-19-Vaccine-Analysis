@@ -1,0 +1,76 @@
+---
+title: "Mapping"
+author: "Callum Weinberg"
+date: "June 9, 2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Libraries
+
+```{r cars}
+summary(cars)
+```
+
+## Data
+
+```{r}
+load("Data/complete_data.Rdata")
+
+# Vaccinations as a Percentage of the Population
+complete_data$VaccinatedPercent = complete_data$Vaccinated/complete_data$Population
+
+# Check for issues
+length(complete_data$VaccinatedPercent[which(complete_data$VaccinatedPercent > 1)])
+summary(complete_data$Population[which(complete_data$VaccinatedPercent > 1)])
+View(complete_data[which(complete_data$VaccinatedPercent > 1),])
+
+# Set Percentages greater than 1 to 1
+complete_data$VaccinatedPercent[which(complete_data$VaccinatedPercent > 1)] = 1
+```
+
+## Mapping: Move to Separate File
+
+```{r}
+library(sf) #Overall handling of sf objects
+library(cartography) #Plotting maps package
+
+library(tigris) #For downloading the zipcode map
+options(tigris_use_cache = TRUE)
+geo <- st_as_sf(zctas(cb = TRUE, starts_with = complete_data$ZCTA5CE10))
+
+#Overall shape of USA states
+states <- st_as_sf(states(cb=TRUE))
+states_ca = states[18,]
+#For plotting, all the maps should have the same crs
+#states=st_transform(states,st_crs(geo))
+states_ca = st_transform(states_ca,st_crs(geo))
+
+#3. Now Merge your data
+yourdata.sf=merge(geo,complete_data)
+
+#4. Plotting
+png(filename = "Images/Vaccination_Map.png", width = 720, height = 720)
+par(mar=c(1,1,1,1))
+ghostLayer(yourdata.sf)
+plot(st_geometry(states_ca), add=TRUE)
+choroLayer(yourdata.sf,
+           var="VaccinatedPercent",
+           add=TRUE,
+           border = NA,
+           legend.pos = "right",
+           legend.frame = TRUE,
+           legend.values.rnd = 2,
+           legend.values.cex = 1)
+layoutLayer(title = "Vaccinations (1+) by ZCTA through May 18th, 2021",
+            theme = "blue.pal",
+            scale = FALSE,
+            sources = "",
+            author = ""
+            )
+dev.off()
+
+```

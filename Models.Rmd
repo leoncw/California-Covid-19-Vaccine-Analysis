@@ -1,0 +1,516 @@
+---
+title: "Models"
+author: "Callum Weinberg"
+date: "June 10, 2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Libraries
+
+
+```{r}
+library(DHARMa)
+library(MASS)
+library(car)
+```
+
+## Load Data
+
+```{r}
+load("Data/complete_data.Rdata")
+
+# Vaccinations as a Percentage of the Population
+complete_data$VaccinatedPercent = complete_data$Vaccinated/complete_data$Population
+complete_data$VaccinatedPercent_fixed = complete_data$VaccinatedPercent
+complete_data$VaccinatedPercent_fixed[which(complete_data$VaccinatedPercent_fixed > 1)] = 1
+
+# Graduate or Bachelors
+complete_data$BachelorsPlus = complete_data$Bachelors + complete_data$Graduate
+```
+
+## Poisson
+
+```{r}
+vaccine_fit_0 = glm(Vaccinated~ offset(log(Population)) +
+                      Female + Median_Age + Black + Asian +
+                      Hispanic + Age_65_Over + High + BachelorsPlus +
+                      Some_College +
+                      Percent_in_Poverty, family = poisson, data = complete_data)
+summary(vaccine_fit_0)
+exp(coef(vaccine_fit_0))
+
+```
+
+
+## Quasipoisson
+
+
+```{r}
+vaccine_fit_1 = glm(Vaccinated~ offset(log(Population)) +
+                      Female + Median_Age + Black + Asian +
+                      Hispanic + Age_65_Over + High + BachelorsPlus +
+                      Some_College +
+                      Percent_in_Poverty, family = quasipoisson, data = complete_data)
+summary(vaccine_fit_1)
+exp(coef(vaccine_fit_1))
+
+
+#Exclude Some_College
+vaccine_fit_2 = glm(Vaccinated~ offset(log(Population)) +
+                      Female + Median_Age + Black + Asian +
+                      Hispanic + Age_65_Over + High + BachelorsPlus +
+                      Percent_in_Poverty, family = quasipoisson, data = complete_data)
+summary(vaccine_fit_2)
+exp(coef(vaccine_fit_2))
+
+
+#Include Median Income
+# Strongly correlated with poverty and less predictive, exclude
+cor(complete_data$Median_Income,complete_data$Percent_in_Poverty, use = "pair")
+
+vaccine_fit_3 = glm(Vaccinated~ offset(log(Population)) +
+                      Female + Median_Age + Black + Asian +
+                      Hispanic + Age_65_Over + High + BachelorsPlus +
+                      Median_Income, family = quasipoisson, data = complete_data)
+summary(vaccine_fit_3)
+exp(coef(vaccine_fit_3))
+
+
+# Try other Ages
+vaccine_fit_4 = glm(Vaccinated~ offset(log(Population)) +
+                      Female + Median_Age + Black + Asian +
+                      Hispanic + Age_Under_15 + Age_25_44 + Age_65_Over + High + BachelorsPlus +
+                      Percent_in_Poverty, family = quasipoisson, data = complete_data)
+summary(vaccine_fit_4)
+exp(coef(vaccine_fit_4))
+
+# Remove Black and Under 15
+vaccine_fit_5 = glm(Vaccinated~ offset(log(Population)) +
+                      Female + Median_Age + Asian +
+                      Hispanic + Age_25_44 + Age_65_Over + High + BachelorsPlus +
+                      Percent_in_Poverty + EquityMetric, family = quasipoisson, data = complete_data)
+summary(vaccine_fit_5)
+exp(coef(vaccine_fit_5))
+cbind(exp(coef(vaccine_fit_5)),exp(confint(vaccine_fit_5)),summary(vaccine_fit_5)$coefficients[,4])
+
+vif(vaccine_fit_5)
+
+
+# Try model with just Equity Metric
+vaccine_fit_6 = glm(Vaccinated~ offset(log(Population)) +
+                      EquityMetric, family = quasipoisson, data = complete_data)
+summary(vaccine_fit_6)
+exp(coef(vaccine_fit_6))
+
+vif(vaccine_fit_6)
+
+
+```
+
+
+
+
+## Negative Binomial
+
+```{r}
+
+# 
+vaccine_fit_5 = glm.nb(Vaccinated~ offset(log(Population)) +
+                      Female + Median_Age + Black + Asian +
+                      Hispanic + Age_Under_15 + Age_25_44 + Age_65_Over + High + BachelorsPlus +
+                      Percent_in_Poverty, link = log, data = complete_data)
+summary(vaccine_fit_5)
+exp(coef(vaccine_fit_5))
+
+
+
+
+
+vaccine_fit_6 = glm.nb(Vaccinated~ offset(log(Population)) +
+                      Female + Median_Age + Asian +
+                      Hispanic + Age_Under_15 + Age_25_44 + Age_65_Over + High + BachelorsPlus +
+                      Percent_in_Poverty, link = log, data = complete_data)
+summary(vaccine_fit_6)
+exp(coef(vaccine_fit_6))
+
+```
+
+## Model Evaluation
+
+```{r}
+# Wildly bad overdispersion
+model_0_residuals <- simulateResiduals(fittedModel = vaccine_fit_0)
+plot(model_0_residuals)
+
+model_6_residuals <- simulateResiduals(fittedModel = vaccine_fit_6)
+plot(model_6_residuals)
+
+```
+
+
+## Extract Necessary Values
+
+Easier to just make a dataframe of these up front (except for partial residuals and added variable plots, since they depend on the covariates)
+```{r}
+# Extract Residuals and Fitted Values
+vaccine_with_fit = complete_data
+vaccine_with_fit = vaccine_with_fit[which(is.na(vaccine_with_fit$Median_Age) == FALSE),]
+vaccine_with_fit = vaccine_with_fit[which(is.na(vaccine_with_fit$Percent_in_Poverty) == FALSE),]
+
+vaccine_with_fit$fitted = fitted(vaccine_fit_5)
+vaccine_with_fit$devianceresiduals = residuals(vaccine_fit_5, "deviance")
+vaccine_with_fit$cd =round(as.vector(cooks.distance(vaccine_fit_5)),4)
+vaccine_with_fit$leverage = round(hatvalues(vaccine_fit_5),4)
+vaccine_with_fit$index = sprintf("%s",seq(from = 1,to = length(vaccine_fit_5$fitted)))
+```
+
+
+## Residual Plots
+
+```{r}
+# 1) Residuals vs. Fitted Values
+# Note that in the other plots, residuals vs. covariates and QQ, can 
+# use the different residuals as needed
+
+# Residual vs. Fitted Plot
+resid_vs_fit_model_5 = ggplot(vaccine_with_fit, 
+                              aes(x = fitted, y = devianceresiduals)) +
+  geom_point() +
+  geom_hline(yintercept = 0, linetype = 2, color = "red", size = .5) +
+  geom_smooth(formula = "y~x", method = "loess",
+              se=TRUE, linetype = 2, color = "red", size = .25) +
+  labs(x="Fitted Values",y="Deviance Residuals") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+png(filename = "Images/residuals.png", width = 720, height = 480)
+resid_vs_fit_model_5
+dev.off()
+
+# 2) Residuals vs. Covariates
+# Female + Median_Age + Asian + Hispanic + Age_25_44 + Age_65_Over + High + BachelorsPlus + Percent_in_Poverty + EquityMetric
+resid_vs_female = ggplot(vaccine_with_fit, 
+                              aes(x = Female, y = devianceresiduals)) +
+  geom_point() +
+  geom_hline(yintercept = 0, linetype = 2, color = "red", size = .5) +
+  geom_smooth(formula = "y~x", method = "loess",
+              se=TRUE, linetype = 2, color = "red", size = .25) +
+  labs(x="% Female",y="Deviance Residuals") + 
+  theme(plot.title = element_text(hjust = 0.5))
+resid_vs_female
+
+resid_vs_Median_Age = ggplot(vaccine_with_fit, 
+                              aes(x = Median_Age, y = devianceresiduals)) +
+  geom_point() +
+  geom_hline(yintercept = 0, linetype = 2, color = "red", size = .5) +
+  geom_smooth(formula = "y~x", method = "loess",
+              se=TRUE, linetype = 2, color = "red", size = .25) +
+  labs(x="Median Age (Years)",y="Deviance Residuals") + 
+  theme(plot.title = element_text(hjust = 0.5))
+resid_vs_Median_Age
+
+resid_vs_Asian = ggplot(vaccine_with_fit, 
+                              aes(x = Asian, y = devianceresiduals)) +
+  geom_point() +
+  geom_hline(yintercept = 0, linetype = 2, color = "red", size = .5) +
+  geom_smooth(formula = "y~x", method = "loess",
+              se=TRUE, linetype = 2, color = "red", size = .25) +
+  labs(x="% Asian",y="Deviance Residuals") + 
+  theme(plot.title = element_text(hjust = 0.5))
+resid_vs_Asian
+
+resid_vs_Hispanic = ggplot(vaccine_with_fit, 
+                              aes(x = Hispanic, y = devianceresiduals)) +
+  geom_point() +
+  geom_hline(yintercept = 0, linetype = 2, color = "red", size = .5) +
+  geom_smooth(formula = "y~x", method = "loess",
+              se=TRUE, linetype = 2, color = "red", size = .25) +
+  labs(x="% Hispanic",y="Deviance Residuals") + 
+  theme(plot.title = element_text(hjust = 0.5))
+resid_vs_Hispanic
+
+resid_vs_Age_25_44 = ggplot(vaccine_with_fit, 
+                              aes(x = Age_25_44, y = devianceresiduals)) +
+  geom_point() +
+  geom_hline(yintercept = 0, linetype = 2, color = "red", size = .5) +
+  geom_smooth(formula = "y~x", method = "loess",
+              se=TRUE, linetype = 2, color = "red", size = .25) +
+  labs(x="% Age_25_44",y="Deviance Residuals") + 
+  theme(plot.title = element_text(hjust = 0.5))
+resid_vs_Age_25_44
+
+resid_vs_Age_65_Over = ggplot(vaccine_with_fit, 
+                              aes(x = Age_65_Over, y = devianceresiduals)) +
+  geom_point() +
+  geom_hline(yintercept = 0, linetype = 2, color = "red", size = .5) +
+  geom_smooth(formula = "y~x", method = "loess",
+              se=TRUE, linetype = 2, color = "red", size = .25) +
+  labs(x="% Age_65_Over",y="Deviance Residuals") + 
+  theme(plot.title = element_text(hjust = 0.5))
+resid_vs_Age_65_Over
+
+resid_vs_Age_High = ggplot(vaccine_with_fit, 
+                              aes(x = High, y = devianceresiduals)) +
+  geom_point() +
+  geom_hline(yintercept = 0, linetype = 2, color = "red", size = .5) +
+  geom_smooth(formula = "y~x", method = "loess",
+              se=TRUE, linetype = 2, color = "red", size = .25) +
+  labs(x="% High",y="Deviance Residuals") + 
+  theme(plot.title = element_text(hjust = 0.5))
+resid_vs_Age_High
+
+resid_vs_BachelorsPlus = ggplot(vaccine_with_fit, 
+                              aes(x = BachelorsPlus, y = devianceresiduals)) +
+  geom_point() +
+  geom_hline(yintercept = 0, linetype = 2, color = "red", size = .5) +
+  geom_smooth(formula = "y~x", method = "loess",
+              se=TRUE, linetype = 2, color = "red", size = .25) +
+  labs(x="% BachelorsPlus",y="Deviance Residuals") + 
+  theme(plot.title = element_text(hjust = 0.5))
+resid_vs_BachelorsPlus
+
+resid_vs_Percent_in_Poverty = ggplot(vaccine_with_fit, 
+                              aes(x = Percent_in_Poverty, y = devianceresiduals)) +
+  geom_point() +
+  geom_hline(yintercept = 0, linetype = 2, color = "red", size = .5) +
+  geom_smooth(formula = "y~x", method = "loess",
+              se=TRUE, linetype = 2, color = "red", size = .25) +
+  labs(x="% Percent_in_Poverty",y="Deviance Residuals") + 
+  theme(plot.title = element_text(hjust = 0.5))
+resid_vs_Percent_in_Poverty
+```
+
+## Partial Residual Plots
+
+```{r}
+## Female
+# Define Partial Residuals
+vaccine_with_fit$female_PR = residuals(vaccine_fit_5,"deviance")+coef(vaccine_fit_5)[2]*vaccine_with_fit$Female
+# Plot
+pr_female = ggplot(vaccine_with_fit,
+       aes(x = Female, y = female_PR)) +
+  geom_point() +
+  geom_smooth(formula = "y~x", method = "loess",
+              se=TRUE, linetype = 2, color = "red", size = .25) +
+  geom_abline(slope = coef(vaccine_fit_5)[2], intercept = 0, size = .25) +
+  labs(x="% Female",y="Partial Deviance Residuals") +
+  theme(text = element_text(size = 20),
+    axis.text.y = element_text(angle=90, hjust=1, size = 10),
+    axis.text.x = element_text(size = 10),
+    plot.title = element_text(hjust = 0.5, size = 12),
+    axis.title=element_text(size=10,face="bold"))
+pr_female
+
+
+## Median Age
+# Define Partial Residuals
+vaccine_with_fit$median_age_PR = residuals(vaccine_fit_5,"deviance")+coef(vaccine_fit_5)[3]*vaccine_with_fit$Median_Age
+# Plot
+pr_median_age = ggplot(vaccine_with_fit,
+       aes(x = Median_Age, y = median_age_PR)) +
+  geom_point() +
+  geom_smooth(formula = "y~x", method = "loess",
+              se=TRUE, linetype = 2, color = "red", size = .25) +
+  geom_abline(slope = coef(vaccine_fit_5)[3], intercept = 0, size = .25) +
+  labs(x="Median Age (Years)",y="Partial Deviance Residuals") +
+  theme(text = element_text(size = 20),
+    axis.text.y = element_text(angle=90, hjust=1, size = 10),
+    axis.text.x = element_text(size = 10),
+    plot.title = element_text(hjust = 0.5, size = 12),
+    axis.title=element_text(size=10,face="bold"))
+pr_median_age
+
+## Asian
+# Define Partial Residuals
+vaccine_with_fit$Asian_PR = residuals(vaccine_fit_5,"deviance")+coef(vaccine_fit_5)[4]*vaccine_with_fit$Asian
+# Plot
+pr_asian = ggplot(vaccine_with_fit,
+       aes(x = Asian, y = Asian_PR)) +
+  geom_point() +
+  geom_smooth(formula = "y~x", method = "loess",
+              se=TRUE, linetype = 2, color = "red", size = .25) +
+  geom_abline(slope = coef(vaccine_fit_5)[4], intercept = 0, size = .25) +
+  labs(x="% Asian",y="Partial Deviance Residuals") +
+  theme(text = element_text(size = 20),
+    axis.text.y = element_text(angle=90, hjust=1, size = 10),
+    axis.text.x = element_text(size = 10),
+    plot.title = element_text(hjust = 0.5, size = 12),
+    axis.title=element_text(size=10,face="bold"))
+pr_asian
+
+## Hispanic
+# Define Partial Residuals
+vaccine_with_fit$hispanic_PR = residuals(vaccine_fit_5,"deviance")+coef(vaccine_fit_5)[5]*vaccine_with_fit$Hispanic
+# Plot
+pr_hispanic = ggplot(vaccine_with_fit,
+       aes(x = Hispanic, y = hispanic_PR)) +
+  geom_point() +
+  geom_smooth(formula = "y~x", method = "loess",
+              se=TRUE, linetype = 2, color = "red", size = .25) +
+  geom_abline(slope = coef(vaccine_fit_5)[5], intercept = 0, size = .25) +
+  labs(x="% Hispanic",y="Partial Deviance Residuals") +
+  theme(text = element_text(size = 20),
+    axis.text.y = element_text(angle=90, hjust=1, size = 10),
+    axis.text.x = element_text(size = 10),
+    plot.title = element_text(hjust = 0.5, size = 12),
+    axis.title=element_text(size=10,face="bold"))
+pr_hispanic
+
+## Age_25_44
+# Define Partial Residuals
+vaccine_with_fit$Age_25_44_PR = residuals(vaccine_fit_5,"deviance")+coef(vaccine_fit_5)[6]*vaccine_with_fit$Age_25_44
+# Plot
+pr_Age_24_44 = ggplot(vaccine_with_fit,
+       aes(x = Age_25_44, y = Age_25_44_PR)) +
+  geom_point() +
+  geom_smooth(formula = "y~x", method = "loess",
+              se=TRUE, linetype = 2, color = "red", size = .25) +
+  geom_abline(slope = coef(vaccine_fit_5)[6], intercept = 0, size = .25) +
+  labs(x="% Age 24 to 44",y="Partial Deviance Residuals") +
+  theme(text = element_text(size = 20),
+    axis.text.y = element_text(angle=90, hjust=1, size = 10),
+    axis.text.x = element_text(size = 10),
+    plot.title = element_text(hjust = 0.5, size = 12),
+    axis.title=element_text(size=10,face="bold"))
+pr_Age_24_44
+
+## Age_65_Over
+# Define Partial Residuals
+vaccine_with_fit$Age_65_Over_PR = residuals(vaccine_fit_5,"deviance")+coef(vaccine_fit_5)[7]*vaccine_with_fit$Age_65_Over
+# Plot
+pr_Age_65_Over_PR = ggplot(vaccine_with_fit,
+       aes(x = Age_65_Over, y = Age_65_Over_PR)) +
+  geom_point() +
+  geom_smooth(formula = "y~x", method = "loess",
+              se=TRUE, linetype = 2, color = "red", size = .25) +
+  geom_abline(slope = coef(vaccine_fit_5)[7], intercept = 0, size = .25) +
+  labs(x="% Age 45 to 64",y="Partial Deviance Residuals") +
+  theme(text = element_text(size = 20),
+    axis.text.y = element_text(angle=90, hjust=1, size = 10),
+    axis.text.x = element_text(size = 10),
+    plot.title = element_text(hjust = 0.5, size = 12),
+    axis.title=element_text(size=10,face="bold"))
+pr_Age_65_Over_PR
+
+## High
+# Define Partial Residuals
+vaccine_with_fit$high_PR = residuals(vaccine_fit_5,"deviance")+coef(vaccine_fit_5)[8]*vaccine_with_fit$High
+# Plot
+pr_high = ggplot(vaccine_with_fit,
+       aes(x = High, y = high_PR)) +
+  geom_point() +
+  geom_smooth(formula = "y~x", method = "loess",
+              se=TRUE, linetype = 2, color = "red", size = .25) +
+  geom_abline(slope = coef(vaccine_fit_5)[8], intercept = 0, size = .25) +
+  labs(x="% High",y="Partial Deviance Residuals") +
+  theme(text = element_text(size = 20),
+    axis.text.y = element_text(angle=90, hjust=1, size = 10),
+    axis.text.x = element_text(size = 10),
+    plot.title = element_text(hjust = 0.5, size = 12),
+    axis.title=element_text(size=10,face="bold"))
+pr_high
+
+## BachelorPlus
+# Define Partial Residuals
+vaccine_with_fit$BachelorsPlus_PR = residuals(vaccine_fit_5,"deviance")+coef(vaccine_fit_5)[9]*vaccine_with_fit$BachelorsPlus
+# Plot
+pr_BachelorsPlus = ggplot(vaccine_with_fit,
+       aes(x = BachelorsPlus, y = BachelorsPlus_PR)) +
+  geom_point() +
+  geom_smooth(formula = "y~x", method = "loess",
+              se=TRUE, linetype = 2, color = "red", size = .25) +
+  geom_abline(slope = coef(vaccine_fit_5)[9], intercept = 0, size = .25) +
+  labs(x="% BachelorsPlus",y="Partial Deviance Residuals") +
+  theme(text = element_text(size = 20),
+    axis.text.y = element_text(angle=90, hjust=1, size = 10),
+    axis.text.x = element_text(size = 10),
+    plot.title = element_text(hjust = 0.5, size = 12),
+    axis.title=element_text(size=10,face="bold"))
+pr_BachelorsPlus
+
+## Percent In Poverty
+# Define Partial Residuals
+vaccine_with_fit$Percent_in_Poverty_PR = residuals(vaccine_fit_5,"deviance")+coef(vaccine_fit_5)[10]*vaccine_with_fit$Percent_in_Poverty
+# Plot
+pr_Percent_in_Poverty = ggplot(vaccine_with_fit,
+       aes(x = Percent_in_Poverty, y = Percent_in_Poverty_PR)) +
+  geom_point() +
+  geom_smooth(formula = "y~x", method = "loess",
+              se=TRUE, linetype = 2, color = "red", size = .25) +
+  geom_abline(slope = coef(vaccine_fit_5)[10], intercept = 0, size = .25) +
+  labs(x="% Percent in Poverty",y="Partial Deviance Residuals") +
+  theme(text = element_text(size = 20),
+    axis.text.y = element_text(angle=90, hjust=1, size = 10),
+    axis.text.x = element_text(size = 10),
+    plot.title = element_text(hjust = 0.5, size = 12),
+    axis.title=element_text(size=10,face="bold"))
+pr_Percent_in_Poverty
+
+```
+
+## Outlier Plot
+
+```{r}
+#Leverage And Cook's Distance
+
+# Set a threshold for high leverage:
+# 2p/n where p is the number of columns
+# in the X^TX matrix (6 coefficients here)
+# Note this includes the intercept
+x <- model.matrix(vaccine_fit_5)
+p = ncol(t(x)%*%x)
+high_leverage = (2*(p))/length(vaccine_with_fit$fitted)
+
+model_used.high_leverage = 
+  which(vaccine_with_fit$leverage > high_leverage)
+model_used.high_leverage
+
+#high influece
+# There's a lot of ways to define high influence... maybe ask in office hours
+# p= 5 (5 coefficients)
+high_influence = qf(0.5,p,length(vaccine_with_fit$fitted)-p)
+#high_influence = qf(0.5,p+1,length(lagoon_with_fit$fitted)-p-1)
+#high_influence = 1
+#high_influence = 4/length(lagoon_with_fit$fitted)
+#high_influence = .025
+
+
+# Flag high influence points
+model_used.high_influence = 
+  which(vaccine_with_fit$cd > high_influence)
+model_used.high_influence
+
+# Plot
+outlier_plot = ggplot(vaccine_with_fit,
+       aes(x = leverage, y = cd)) +
+  geom_point() +
+  geom_vline(xintercept = high_leverage, linetype = 2, color = "red", size = .25) +
+  #geom_hline(yintercept = high_influence, linetype = 2, color = "red", size = .25) +
+  geom_text(aes(label=ifelse(leverage>.05 | cd > .025,
+                             as.character(index),'')),
+            hjust=-.5, vjust=-.5,size = 3, position = "jitter") +
+  #labs(title = "Cook's Distance vs. Leverage", 
+  #     x="Leverage",y="Cook's Distance") +
+  labs(x="Leverage",y="Cook's Distance") +
+  theme(text = element_text(size = 20),
+    legend.title = element_text(size = 15),
+    legend.text = element_text(size = 15),
+    legend.key.width=unit(1,"cm"),
+    axis.text.y = element_text(angle=90, hjust=1, size = 10),
+    axis.text.x = element_text(size = 10),
+    plot.title = element_text(hjust = 0.5, size = 10),
+    axis.title=element_text(size=10,face="bold"))
+png(filename = "Images/outliers.png", width = 720, height = 480)
+outlier_plot
+dev.off()
+
+## Plots for report
+#png(filename = "Images/outliers.png", width = 960, height = 480)
+#plot_grid(outlier_plot, labels = NULL, label_size = 12, ncol = 1, nrow = 1)
+#dev.off()
+```
+
+

@@ -1,0 +1,443 @@
+---
+title: "Exploratory Data Analysis"
+author: "Callum Weinberg"
+date: "June 8, 2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Libraries
+
+```{r cars}
+library(ggplot2)
+library(dplyr)
+library(cowplot)
+library(scales)
+library(reshape2)
+```
+
+## Data
+
+```{r}
+load("Data/complete_data.Rdata")
+
+# Vaccinations as a Percentage of the Population
+complete_data$VaccinatedPercent = complete_data$Vaccinated/complete_data$Population
+```
+
+## Comparison of ZTCA and County Populations
+
+```{r}
+# Switch out this data for the cleaned version once that is completed
+population_data = complete_data[,c(1,2,4)]
+
+# Rename Variables
+names(population_data) = c("ZTCA","County","Population")
+
+# Drop Missing ZTCAs
+ztca_population_data = population_data[which(is.na(population_data$Population) == FALSE),]
+
+# Confirming ZTCA is unique, i.e. this data can represent ZTCA level population
+length(unique(ztca_population_data$ZTCA)) == length(ztca_population_data$ZTCA)
+
+# Get County Level Population
+county_population_data = ztca_population_data %>%
+  group_by(County) %>%
+  summarise(across(.fns=sum,.cols= 'Population'), .groups = 'drop')
+
+
+# Histogram of Population by ZTCA
+ztca_population_histogram = 
+  ggplot(ztca_population_data, aes(x = Population)) +
+  geom_histogram(aes(y = ..density..)) +
+  geom_density(alpha = 0.1, fill = "red") +
+  labs(title = "By ZCTA",
+       x = "Population (Count)", y = "Frequency") +
+  scale_x_continuous(label = comma) +
+  theme(text = element_text(size = 20),
+    legend.title = element_text(size = 15),
+    legend.text = element_text(size = 15),
+    legend.key.width=unit(1,"cm"),
+    axis.text.y = element_text(angle=90, hjust=1, size = 10),
+    axis.text.x = element_text(size = 10),
+    plot.title = element_text(hjust = 0.5, size = 12),
+    axis.title=element_text(size=10,face="bold"))
+
+# Histogram of Population by County
+county_population_histogram = 
+  ggplot(county_population_data, aes(x = Population)) +
+  geom_histogram(aes(y = ..density..)) +
+  geom_density(alpha = 0.1, fill = "red") +
+  labs(title = "By County",
+       x = "Population (Count)", y = "Frequency") +
+  scale_x_continuous(label = comma) +
+  theme(text = element_text(size = 20),
+    legend.title = element_text(size = 15),
+    legend.text = element_text(size = 15),
+    legend.key.width=unit(1,"cm"),
+    axis.text.y = element_text(angle=90, hjust=1, size = 10),
+    axis.text.x = element_text(size = 10),
+    plot.title = element_text(hjust = 0.5, size = 12),
+    axis.title=element_text(size=10,face="bold"))
+
+## Plots for report
+png(filename = "Images/population_histograms.png", width = 960, height = 480)
+plot_grid(ztca_population_histogram,county_population_histogram, labels = NULL, label_size = 12, ncol = 2, nrow = 1)
+dev.off()
+
+# Summary Statistics for Size
+summary(ztca_population_data$Population)
+summary(county_population_data$Population)
+```
+
+## Zip Code Tabulation Area
+
+```{r}
+# Summary Statistics for Vaccination Rate and Count 
+# NOT ADJUSTED FOR ZCTAS with higher vaccination count than population
+summary(complete_data$VaccinatedPercent)
+summary(complete_data$Vaccinated)
+
+
+# Histogram of Vaccination Rate
+tempdata = complete_data
+# Set Percentages greater than 1 to 1
+tempdata$VaccinatedPercent[which(tempdata$VaccinatedPercent > 1)] = 1
+
+vaccination_percentage_histogram = 
+  ggplot(tempdata, aes(x = VaccinatedPercent*100)) +
+  geom_histogram() +
+  geom_density(alpha = 0.1, fill = "red") +
+  labs(x = "Vaccination Percentage (1+ Dose)", y = "Frequency") +
+  theme(text = element_text(size = 20),
+    legend.title = element_text(size = 15),
+    legend.text = element_text(size = 15),
+    legend.key.width=unit(1,"cm"),
+    axis.text.y = element_text(angle=90, hjust=1, size = 10),
+    axis.text.x = element_text(size = 10),
+    plot.title = element_text(hjust = 0.5, size = 12),
+    axis.title=element_text(size=10,face="bold"))
+
+png(filename = "Images/vaccinationrate_histograms.png", width = 960, height = 480)
+vaccination_percentage_histogram
+dev.off()
+
+# Histogram of Vaccination Count
+vaccination_count_histogram = 
+  ggplot(complete_data, aes(x = Vaccinated)) +
+  geom_histogram(aes(y = ..density..)) +
+  geom_density(alpha = 0.1, fill = "red") +
+  labs(x = "Vaccination Count (1+ Dose)", y = "Frequency") +
+  theme(text = element_text(size = 20),
+    legend.title = element_text(size = 15),
+    legend.text = element_text(size = 15),
+    legend.key.width=unit(1,"cm"),
+    axis.text.y = element_text(angle=90, hjust=1, size = 10),
+    axis.text.x = element_text(size = 10),
+    plot.title = element_text(hjust = 0.5, size = 12),
+    axis.title=element_text(size=10,face="bold"))
+
+vaccination_count_histogram
+
+
+```
+
+
+## Scatter Plots
+
+```{r}
+# Scatter Plots
+tempdata = complete_data
+# Set Percentages greater than 1 to 1
+tempdata$VaccinatedPercent[which(tempdata$VaccinatedPercent > 1)] = 1
+
+
+## Race and Ethnicity
+scatter_White = 
+  ggplot(tempdata, aes(x = White, y = VaccinatedPercent)) +
+  geom_point() +
+  geom_smooth(color = "red", size = .5) +
+  labs(title = "Percentage White vs Vaccination Rate\nBy ZCTA",
+       x = "% White", y = "Vaccination Rate") +
+  scale_x_continuous(breaks = seq(0,100,by = 10)) +
+  theme(text = element_text(size = 20),
+    axis.text.y = element_text(angle=90, hjust=1, size = 10),
+    axis.text.x = element_text(size = 10),
+    plot.title = element_text(hjust = 0.5, size = 12),
+    axis.title=element_text(size=10,face="bold"))
+#png(filename = "Images/scatter_white.png", width = 960, height = 480)
+scatter_White
+#dev.off()
+
+scatter_Black = 
+  ggplot(tempdata, aes(x = Black, y = VaccinatedPercent)) +
+  geom_point() +
+  geom_smooth(color = "red", size = .5) +
+  labs(title = "Percentage Black vs Vaccination Rate\nBy ZCTA",
+       x = "% Black", y = "Vaccination Rate") +
+  scale_x_continuous(breaks = seq(0,100,by = 10)) +
+  theme(text = element_text(size = 20),
+    axis.text.y = element_text(angle=90, hjust=1, size = 10),
+    axis.text.x = element_text(size = 10),
+    plot.title = element_text(hjust = 0.5, size = 12),
+    axis.title=element_text(size=10,face="bold"))
+scatter_Black
+
+scatter_Hispanic = 
+  ggplot(tempdata, aes(x = Hispanic, y = VaccinatedPercent)) +
+  geom_point() +
+  geom_smooth(color = "red", size = .5) +
+  labs(title = "Percentage Hispanic vs Vaccination Rate\nBy ZCTA",
+       x = "% Hispanic", y = "Vaccination Rate") +
+  scale_x_continuous(breaks = seq(0,100,by = 10)) +
+  theme(text = element_text(size = 20),
+    axis.text.y = element_text(angle=90, hjust=1, size = 10),
+    axis.text.x = element_text(size = 10),
+    plot.title = element_text(hjust = 0.5, size = 12),
+    axis.title=element_text(size=10,face="bold"))
+scatter_Hispanic
+
+scatter_Asian = 
+  ggplot(tempdata, aes(x = Asian, y = VaccinatedPercent)) +
+  geom_point() +
+  geom_smooth(color = "red", size = .5) +
+  labs(title = "Percentage Asian vs Vaccination Rate\nBy ZCTA",
+       x = "% Asian", y = "Vaccination Rate") +
+  scale_x_continuous(breaks = seq(0,100,by = 10)) +
+  theme(text = element_text(size = 20),
+    axis.text.y = element_text(angle=90, hjust=1, size = 10),
+    axis.text.x = element_text(size = 10),
+    plot.title = element_text(hjust = 0.5, size = 12),
+    axis.title=element_text(size=10,face="bold"))
+scatter_Asian
+
+# Gender
+scatter_female = 
+  ggplot(tempdata, aes(x = Female, y = VaccinatedPercent)) +
+  geom_point() +
+  geom_smooth(color = "red", size = .5) +
+  labs(title = "Percentage Female vs Vaccination Rate\nBy ZCTA",
+       x = "% Female", y = "Vaccination Rate") +
+  scale_x_continuous(breaks = seq(0,100,by = 10)) +
+  theme(text = element_text(size = 20),
+    axis.text.y = element_text(angle=90, hjust=1, size = 10),
+    axis.text.x = element_text(size = 10),
+    plot.title = element_text(hjust = 0.5, size = 12),
+    axis.title=element_text(size=10,face="bold"))
+scatter_female
+
+## Age Variables
+scatter_median_age = 
+  ggplot(tempdata, aes(x = Median_Age, y = VaccinatedPercent)) +
+  geom_point() +
+  geom_smooth(color = "red", size = .5) +
+  labs(title = "Median Age vs Vaccination Rate\nBy ZCTA",
+       x = "Age (Years)", y = "Vaccination Rate") +
+  scale_x_continuous(breaks = seq(0,100,by = 10)) +
+  theme(text = element_text(size = 20),
+    axis.text.y = element_text(angle=90, hjust=1, size = 10),
+    axis.text.x = element_text(size = 10),
+    plot.title = element_text(hjust = 0.5, size = 12),
+    axis.title=element_text(size=10,face="bold"))
+scatter_median_age
+
+scatter_under_15 = 
+  ggplot(tempdata, aes(x = Age_Under_15, y = VaccinatedPercent)) +
+  geom_point() +
+  geom_smooth(color = "red", size = .5) +
+  labs(title = "Percentage Under 15 vs Vaccination Rate\nBy ZCTA",
+       x = "% Under 15 (Years)", y = "Vaccination Rate") +
+  scale_x_continuous(breaks = seq(0,100,by = 10)) +
+  theme(text = element_text(size = 20),
+    axis.text.y = element_text(angle=90, hjust=1, size = 10),
+    axis.text.x = element_text(size = 10),
+    plot.title = element_text(hjust = 0.5, size = 12),
+    axis.title=element_text(size=10,face="bold"))
+scatter_under_15
+
+scatter_15_24 = 
+  ggplot(tempdata, aes(x = Age_15_24, y = VaccinatedPercent)) +
+  geom_point() +
+  geom_smooth(color = "red", size = .5) +
+  labs(title = "Percentage 15 to 24 YO vs Vaccination Rate\nBy ZCTA",
+       x = "% 15 to 24 (Years)", y = "Vaccination Rate") +
+  scale_x_continuous(breaks = seq(0,100,by = 10)) +
+  theme(text = element_text(size = 20),
+    axis.text.y = element_text(angle=90, hjust=1, size = 10),
+    axis.text.x = element_text(size = 10),
+    plot.title = element_text(hjust = 0.5, size = 12),
+    axis.title=element_text(size=10,face="bold"))
+scatter_15_24
+
+scatter_25_44 = 
+  ggplot(tempdata, aes(x = Age_25_44, y = VaccinatedPercent)) +
+  geom_point() +
+  geom_smooth(color = "red", size = .5) +
+  labs(title = "Percentage 25 to 44 YO vs Vaccination Rate\nBy ZCTA",
+       x = "% 25 to 44 (Years)", y = "Vaccination Rate") +
+  scale_x_continuous(breaks = seq(0,100,by = 10)) +
+  theme(text = element_text(size = 20),
+    axis.text.y = element_text(angle=90, hjust=1, size = 10),
+    axis.text.x = element_text(size = 10),
+    plot.title = element_text(hjust = 0.5, size = 12),
+    axis.title=element_text(size=10,face="bold"))
+scatter_25_44
+
+scatter_45_64 = 
+  ggplot(tempdata, aes(x = Age_45_64, y = VaccinatedPercent)) +
+  geom_point() +
+  geom_smooth(color = "red", size = .5) +
+  labs(title = "Percentage 45 to 64 YO vs Vaccination Rate\nBy ZCTA",
+       x = "% 45 to 64 (Years)", y = "Vaccination Rate") +
+  scale_x_continuous(breaks = seq(0,100,by = 10)) +
+  theme(text = element_text(size = 20),
+    axis.text.y = element_text(angle=90, hjust=1, size = 10),
+    axis.text.x = element_text(size = 10),
+    plot.title = element_text(hjust = 0.5, size = 12),
+    axis.title=element_text(size=10,face="bold"))
+scatter_45_64
+
+
+scatter_65_over = 
+  ggplot(tempdata, aes(x = Age_65_Over, y = VaccinatedPercent)) +
+  geom_point() +
+  geom_smooth(color = "red", size = .5) +
+  labs(title = "Percentage Over 65 YO vs Vaccination Rate\nBy ZCTA",
+       x = "% Over 65 (Years)", y = "Vaccination Rate") +
+  scale_x_continuous(breaks = seq(0,100,by = 10)) +
+  theme(text = element_text(size = 20),
+    axis.text.y = element_text(angle=90, hjust=1, size = 10),
+    axis.text.x = element_text(size = 10),
+    plot.title = element_text(hjust = 0.5, size = 12),
+    axis.title=element_text(size=10,face="bold"))
+scatter_65_over
+
+## Economics
+
+scatter_poverty = 
+  ggplot(tempdata, aes(x = Percent_in_Poverty, y = VaccinatedPercent)) +
+  geom_point() +
+  geom_smooth(color = "red", size = .5) +
+  labs(title = "Percentage in Poverty vs Vaccination Rate\nBy ZCTA",
+       x = "% Below Poverty Threshold", y = "Vaccination Rate") +
+  scale_x_continuous(breaks = seq(0,100,by = 10)) +
+  theme(text = element_text(size = 20),
+    axis.text.y = element_text(angle=90, hjust=1, size = 10),
+    axis.text.x = element_text(size = 10),
+    plot.title = element_text(hjust = 0.5, size = 12),
+    axis.title=element_text(size=10,face="bold"))
+scatter_poverty
+
+scatter_income= 
+  ggplot(tempdata, aes(x = Median_Income, y = VaccinatedPercent)) +
+  geom_point() +
+  geom_smooth(color = "red", size = .5) +
+  labs(title = "Median Income vs Vaccination Rate\nBy ZCTA",
+       x = "Median Income (Dollars)", y = "Vaccination Rate") +
+  scale_x_continuous(breaks = seq(0,100,by = 10)) +
+  theme(text = element_text(size = 20),
+    axis.text.y = element_text(angle=90, hjust=1, size = 10),
+    axis.text.x = element_text(size = 10),
+    plot.title = element_text(hjust = 0.5, size = 12),
+    axis.title=element_text(size=10,face="bold"))
+scatter_income
+
+
+## Education Level
+
+scatter_lesshigh= 
+  ggplot(tempdata, aes(x = Less_High, y = VaccinatedPercent)) +
+  geom_point() +
+  geom_smooth(color = "red", size = .5) +
+  labs(title = "Less Than High School Education vs Vaccination Rate\nBy ZCTA",
+       x = "% Less Than High School", y = "Vaccination Rate") +
+  scale_x_continuous(breaks = seq(0,100,by = 10)) +
+  theme(text = element_text(size = 20),
+    axis.text.y = element_text(angle=90, hjust=1, size = 10),
+    axis.text.x = element_text(size = 10),
+    plot.title = element_text(hjust = 0.5, size = 12),
+    axis.title=element_text(size=10,face="bold"))
+scatter_lesshigh
+
+scatter_Some_College= 
+  ggplot(tempdata, aes(x = Some_College, y = VaccinatedPercent)) +
+  geom_point() +
+  geom_smooth(color = "red", size = .5) +
+  labs(title = "Some College Education vs Vaccination Rate\nBy ZCTA",
+       x = "% Some College", y = "Vaccination Rate") +
+  scale_x_continuous(breaks = seq(0,100,by = 10)) +
+  theme(text = element_text(size = 20),
+    axis.text.y = element_text(angle=90, hjust=1, size = 10),
+    axis.text.x = element_text(size = 10),
+    plot.title = element_text(hjust = 0.5, size = 12),
+    axis.title=element_text(size=10,face="bold"))
+scatter_Some_College
+
+scatter_Bachelors= 
+  ggplot(tempdata, aes(x = Bachelors, y = VaccinatedPercent)) +
+  geom_point() +
+  geom_smooth(color = "red", size = .5) +
+  labs(title = "Bachelors Education vs Vaccination Rate\nBy ZCTA",
+       x = "% Bachelors", y = "Vaccination Rate") +
+  scale_x_continuous(breaks = seq(0,100,by = 10)) +
+  theme(text = element_text(size = 20),
+    axis.text.y = element_text(angle=90, hjust=1, size = 10),
+    axis.text.x = element_text(size = 10),
+    plot.title = element_text(hjust = 0.5, size = 12),
+    axis.title=element_text(size=10,face="bold"))
+scatter_Bachelors
+
+scatter_Graduate= 
+  ggplot(tempdata, aes(x = Graduate, y = VaccinatedPercent)) +
+  geom_point() +
+  geom_smooth(color = "red", size = .5) +
+  labs(title = "Graduate Education vs Vaccination Rate\nBy ZCTA",
+       x = "% Graduate", y = "Vaccination Rate") +
+  scale_x_continuous(breaks = seq(0,100,by = 10)) +
+  theme(text = element_text(size = 20),
+    axis.text.y = element_text(angle=90, hjust=1, size = 10),
+    axis.text.x = element_text(size = 10),
+    plot.title = element_text(hjust = 0.5, size = 12),
+    axis.title=element_text(size=10,face="bold"))
+scatter_Graduate
+
+
+
+scatter_High= 
+  ggplot(tempdata, aes(x = High, y = VaccinatedPercent)) +
+  geom_point() +
+  geom_smooth(color = "red", size = .5) +
+  labs(x = "%High School", y = "Vaccination Rate") +
+  scale_x_continuous(breaks = seq(0,100,by = 10)) +
+  scale_y_continuous(limits = c(0,1)) +
+  theme(text = element_text(size = 20),
+    axis.text.y = element_text(angle=90, hjust=1, size = 10),
+    axis.text.x = element_text(size = 10),
+    plot.title = element_text(hjust = 0.5, size = 12),
+    axis.title=element_text(size=10,face="bold"))
+scatter_High
+
+scatter_BachelorsPlus= 
+  ggplot(tempdata, aes(x = Graduate + Bachelors, y = VaccinatedPercent)) +
+  geom_point() +
+  geom_smooth(color = "red", size = .5) +
+  labs(x = "% Bachelors or Graduate", y = "Vaccination Rate") +
+  scale_x_continuous(breaks = seq(0,100,by = 10)) +
+  theme(text = element_text(size = 20),
+    axis.text.y = element_text(angle=90, hjust=1, size = 10),
+    axis.text.x = element_text(size = 10),
+    plot.title = element_text(hjust = 0.5, size = 12),
+    axis.title=element_text(size=10,face="bold"))
+scatter_BachelorsPlus
+
+
+
+## Plots for report
+png(filename = "Images/education_scatters.png", width = 960, height = 480)
+plot_grid(scatter_High,scatter_BachelorsPlus, labels = NULL, label_size = 12, ncol = 2, nrow = 1)
+dev.off()
+
+```

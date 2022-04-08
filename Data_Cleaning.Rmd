@@ -1,0 +1,185 @@
+---
+title: "Data Cleaning"
+author: "Callum Weinberg"
+date: "June 7, 2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Libraries
+
+
+```{r}
+library(dplyr)
+```
+
+## Load Vaccine Data
+
+```{r}
+# https://data.ca.gov/dataset/covid-19-vaccine-progress-dashboard-data-by-zip-code/resource/0a173165-7843-452e-b2d8-669bd416e9ca
+vaccine_data = read.csv("Data/vaccinationsbyzip-table-1.csv")
+vaccine_data_limited = vaccine_data[,c(1,3,4,6,7,8)]
+remove(vaccine_data)
+
+# Clean Names
+names(vaccine_data_limited) = c("ZCTA5CE10","County","EquityMetric","Population","FullyVaccinated","PartiallyVaccinated")
+
+# Create Variable Combining Fully and Partially Vaccinated
+vaccine_data_limited$Vaccinated = vaccine_data_limited$FullyVaccinated + vaccine_data_limited$PartiallyVaccinated
+
+# Drop the ZCTAs without Vaccination Data
+vaccine_data_limited = vaccine_data_limited[which(is.na(vaccine_data_limited$Vaccinated) == FALSE),]
+```
+
+## Load and Clean Demographic Data
+
+```{r}
+## ACS Demographic
+acs_demographic = read.csv("Data/ACS Demographic.csv")
+# limit to columns of interest
+acs_demographic_limited = acs_demographic[,c(1,2,13,21,25,29,33,37,41,45,49,53,57,61,65,69,71,149,153,157,177,209,285)]
+# Rename Variables
+names(acs_demographic_limited) = c("Geo_ID","ZCTA5CE10","Female",
+                                   "Age_Under_5","Age_5_9","Age_10_14","Age_15_19","Age_20_24","Age_25_34","Age_35_44","Age_45_54",
+                                   "Age_55_59","Age_60_64","Age_65_74","Age_75_84","Age_85_Over",
+                                   "Median_Age","White","Black","AIandAN","Asian","NHandOPI","Hispanic")
+# Drop first row
+acs_demographic_limited = acs_demographic_limited[-c(1),]
+# Clean ZCTA
+acs_demographic_limited$ZCTA5CE10 = substr(acs_demographic_limited$ZCTA5CE10,7,11)
+ZCTA5CE10_charlength = nchar(acs_demographic_limited$ZCTA5CE10)
+unique(ZCTA5CE10_charlength) == 5 # All 5 digits long
+remove(ZCTA5CE10_charlength)
+# Create New Age Variable Groups
+acs_demographic_limited$Age_Under_15 = as.numeric(acs_demographic_limited$Age_Under_5) + as.numeric(acs_demographic_limited$Age_5_9) + as.numeric(acs_demographic_limited$Age_10_14)
+acs_demographic_limited$Age_15_24 = as.numeric(acs_demographic_limited$Age_15_19) + as.numeric(acs_demographic_limited$Age_20_24)
+acs_demographic_limited$Age_25_44 = as.numeric(acs_demographic_limited$Age_25_34) + as.numeric(acs_demographic_limited$Age_35_44)
+acs_demographic_limited$Age_45_64 = as.numeric(acs_demographic_limited$Age_45_54) + as.numeric(acs_demographic_limited$Age_55_59) + as.numeric(acs_demographic_limited$Age_60_64)
+acs_demographic_limited$Age_65_Over = as.numeric(acs_demographic_limited$Age_65_74) + as.numeric(acs_demographic_limited$Age_75_84) + as.numeric(acs_demographic_limited$Age_85_Over)
+# Check that Age Percentages roughly add to 100
+# Note: 26 NAs
+acs_demographic_limited$Age_Check = acs_demographic_limited$Age_Under_15 + acs_demographic_limited$Age_15_24 + 
+  acs_demographic_limited$Age_25_44 + acs_demographic_limited$Age_45_64 + acs_demographic_limited$Age_65_Over
+
+# Drop Old Age Variables
+drops <- c("Geo_ID","Age_Under_5","Age_5_9","Age_10_14", "Age_15_19","Age_20_24",
+           "Age_25_34","Age_35_44","Age_45_54","Age_55_59","Age_60_64",
+           "Age_65_74","Age_75_84","Age_85_Over","Age_Check")
+acs_demographic_limited = acs_demographic_limited[ , !(names(acs_demographic_limited) %in% drops)]
+
+
+## Educational Attainment
+acs_educational = read.csv("Data/ACS Educational.csv")
+# limit to columns of interest
+acs_educational_limited = acs_educational[,c(1,2,13,15,17,19,21,23,25,27)]
+# Rename Variables
+names(acs_educational_limited) = c("Geo_ID","ZCTA5CE10","Pop_25",
+                                   "Less_9th_Grade","High_No_Diploma","High_Diploma",
+                                   "Some_College","Associates","Bachelors","GraduateOrProfessional")
+# Drop first row
+acs_educational_limited = acs_educational_limited[-c(1),]
+# Clean ZCTA
+acs_educational_limited$ZCTA5CE10 = substr(acs_educational_limited$ZCTA5CE10,7,11)
+ZCTA5CE10_charlength = nchar(acs_educational_limited$ZCTA5CE10)
+unique(ZCTA5CE10_charlength) == 5 # All 5 digits long
+remove(ZCTA5CE10_charlength)
+# Create New Educational Variable Groups
+acs_educational_limited$Less_High = 100*(as.numeric(acs_educational_limited$Less_9th_Grade) + as.numeric(acs_educational_limited$High_No_Diploma))/as.numeric(acs_educational_limited$Pop_25)
+acs_educational_limited$High = 100*as.numeric(acs_educational_limited$High_Diploma)/as.numeric(acs_educational_limited$Pop_25)
+acs_educational_limited$Some_College = 100*(as.numeric(acs_educational_limited$Some_College) + as.numeric(acs_educational_limited$Associates))/as.numeric(acs_educational_limited$Pop_25)
+acs_educational_limited$Bachelors = 100*as.numeric(acs_educational_limited$Bachelors)/as.numeric(acs_educational_limited$Pop_25)
+acs_educational_limited$Graduate = 100*as.numeric(acs_educational_limited$GraduateOrProfessional)/as.numeric(acs_educational_limited$Pop_25)
+# Check that Age Percentages roughly add to 100
+# Note: 27 NAs
+acs_educational_limited$Education_Check = acs_educational_limited$Less_High + acs_educational_limited$High + 
+  acs_educational_limited$Some_College + acs_educational_limited$Bachelors + acs_educational_limited$Graduate
+
+# Drop Old Age Variables
+drops <- c("Geo_ID","Pop_25","Less_9th_Grade","High_No_Diploma", "High_Diploma",
+           "Associates","GraduateOrProfessional","Education_Check")
+acs_educational_limited = acs_educational_limited[ , !(names(acs_educational_limited) %in% drops)]
+
+## Poverty
+acs_poverty = read.csv("Data/ACS Poverty Status.csv")
+# limit to columns of interest
+acs_poverty_limited = acs_poverty[,c(2,247)] # Excluding GEO_ID, can include if necessary
+# Rename Variables
+names(acs_poverty_limited) = c("ZCTA5CE10","Percent_in_Poverty")
+# Drop first row
+acs_poverty_limited = acs_poverty_limited[-c(1),]
+# Clean ZCTA
+acs_poverty_limited$ZCTA5CE10 = substr(acs_poverty_limited$ZCTA5CE10,7,11)
+ZCTA5CE10_charlength = nchar(acs_poverty_limited$ZCTA5CE10)
+unique(ZCTA5CE10_charlength) == 5 # All 5 digits long
+remove(ZCTA5CE10_charlength)
+# Create New Poverty Variable
+acs_poverty_limited$Percent_in_Poverty = as.numeric(acs_poverty_limited$Percent_in_Poverty)
+# Note: 40 NAs
+
+## Median income (over past 12 months, adjusted for Inflation)
+acs_income = read.csv("Data/ACS Income.csv")
+# limit to columns of interest
+acs_income_limited = acs_income[,c(2,25)] # Excluding GEO_ID, can include if necessary
+# Rename Variables
+names(acs_income_limited) = c("ZCTA5CE10","Median_Income")
+# Drop first row
+acs_income_limited = acs_income_limited[-c(1),]
+# Clean ZCTA
+acs_income_limited$ZCTA5CE10 = substr(acs_income_limited$ZCTA5CE10,7,11)
+ZCTA5CE10_charlength = nchar(acs_income_limited$ZCTA5CE10)
+unique(ZCTA5CE10_charlength) == 5 # All 5 digits long
+remove(ZCTA5CE10_charlength)
+# Create New Poverty Variable
+acs_income_limited$Median_Income = as.numeric(acs_income_limited$Median_Income)
+# Note: 149 NAs
+
+## Merge Together ACS Data
+acs_clean_data = merge(x = acs_demographic_limited, y = acs_educational_limited, by.x = "ZCTA5CE10", by.y = "ZCTA5CE10")
+acs_clean_data = merge(x = acs_clean_data, y = acs_poverty_limited, by.x = "ZCTA5CE10", by.y = "ZCTA5CE10")
+acs_clean_data = merge(x = acs_clean_data, y = acs_income_limited, by.x = "ZCTA5CE10", by.y = "ZCTA5CE10")
+
+remove(acs_demographic,acs_demographic_limited,
+       acs_educational,acs_educational_limited,
+       acs_income,acs_income_limited,
+       acs_poverty,acs_poverty_limited, drops)
+```
+
+## Merge ACS and Vaccination Data
+
+```{r}
+complete_data = merge(x = vaccine_data_limited, y = acs_clean_data, by.x = "ZCTA5CE10", by.y = "ZCTA5CE10")
+
+# Check for NA's
+sapply(complete_data, function(x) sum(is.na(x)))
+```
+
+## Convert Data to Numeric and others
+
+```{r}
+# To Numeric
+complete_data$White = as.numeric(complete_data$White)
+complete_data$Black = as.numeric(complete_data$Black)
+complete_data$AIandAN = as.numeric(complete_data$AIandAN)
+complete_data$Asian = as.numeric(complete_data$Asian)
+complete_data$NHandOPI = as.numeric(complete_data$NHandOPI)
+complete_data$Hispanic = as.numeric(complete_data$Hispanic)
+complete_data$Female = as.numeric(complete_data$Female)
+complete_data$Median_Age = as.numeric(complete_data$Median_Age)
+complete_data$Percent_in_Poverty = as.numeric(complete_data$Percent_in_Poverty)
+complete_data$Median_Income = as.numeric(complete_data$Median_Income)
+
+# To Factor
+complete_data$EquityMetric = as.factor(complete_data$EquityMetric)
+```
+
+
+## Save the Data out for Use in other files
+
+```{r}
+save(complete_data,file="Data/complete_data.Rdata")
+
+```
+
